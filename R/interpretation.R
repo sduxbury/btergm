@@ -286,8 +286,9 @@ setMethod("interpret", signature = className("mtergm", "btergm"),
 
 
 # a function that creates all tie probabilities along with some other variables
-edgeprob <- function (object, verbose = FALSE)
+edgeprob <- function (model, verbose = FALSE)
 {
+  object<-model
   if (class(object) == "ergm") {
     tergm <- FALSE
   }
@@ -298,15 +299,15 @@ edgeprob <- function (object, verbose = FALSE)
     stop(paste("The edgeprob function is only applicable to ergm, btergm, and",
                "mtergm objects."))
   }
-  l <- tergmprepare(formula = getformula(object), offset = FALSE,
+  l <- tergmprepare(formula = btergm::getformula(object), offset = FALSE,
                     blockdiag = FALSE, verbose = FALSE)
   for (cv in 1:length(l$covnames)) {
     assign(l$covnames[cv], l[[l$covnames[cv]]])
   }
   assign("offsmat", l$offsmat)
-  form <- as.formula(l$form)
+  form <- stats::as.formula(l$form)
   covnames <- l$covnames[-1]
-  coefs <- coef(object)
+  coefs <- stats::coef(object)
   if (verbose == TRUE) {
     message("Creating data frame with predictors...")
   }
@@ -315,8 +316,8 @@ edgeprob <- function (object, verbose = FALSE)
   for (i in 1:length(l$networks)) {
     mat <- as.matrix(l$networks[[i]])
     imat <- matrix(rep(1:nrow(mat), ncol(mat)), nrow = nrow(mat))
-    if ((class(l$networks[[i]]) == "network" && is.bipartite(l$networks[[i]])) ||
-        (class(l$networks[[i]]) == "matrix" && is.mat.onemode(l$networks[[i]]) ==
+    if ((class(l$networks[[i]]) == "network" && network::is.bipartite(l$networks[[i]])) ||
+        (class(l$networks[[i]]) == "matrix" && xergm.common::is.mat.onemode(l$networks[[i]]) ==
          FALSE)) {
       mn <- nrow(mat) + 1
       mx <- nrow(mat) + ncol(mat)
@@ -327,7 +328,7 @@ edgeprob <- function (object, verbose = FALSE)
       jmat <- matrix(rep(1:ncol(mat), nrow(mat)), nrow = nrow(mat),
                      byrow = TRUE)
     }
-    f <- as.formula(paste(l$form, " + edgecov(imat) + edgecov(jmat)"))
+    f <- stats::as.formula(paste(l$form, " + edgecov(imat) + edgecov(jmat)"))
     mpli <- ergm::ergmMPLE(f)
     Y <- c(Y, mpli$response)
     dyads <- rbind(dyads, cbind(mpli$predictor, i))
@@ -342,7 +343,7 @@ edgeprob <- function (object, verbose = FALSE)
   class(dyads[, length(colnames(dyads))]) <- "integer"
   class(dyads[, length(colnames(dyads)) - 1]) <- "integer"
   class(dyads[, length(colnames(dyads)) - 2]) <- "integer"
-  cf <- coef(object)
+  cf <- stats::coef(object)
   cf.length <- length(cf)
   cf <- cf[!cf %in% c(Inf, -Inf)]
   if (length(cf) != cf.length) {
@@ -352,13 +353,21 @@ edgeprob <- function (object, verbose = FALSE)
   }
   cbcoef <- cbind(cf)
   chgstat <- dyads[, 2:(ncol(dyads) - 3)]
+  ##handle decay term in curved ergms
+  if(ergm::is.curved(object)){
+    curved.term<-vector(length=length(object$etamap$curved))
+    for(i in 1:length(object$etamap$curved)){
+    curved.term[i]<-object$etamap$curved[[i]]$from[2]
+    }
+    cbcoef<-cbcoef[-c(curved.term)]
+  }
+
   lp <- apply(chgstat, 1, function(x) t(x) %*% cbcoef)
   result <- c(1/(1 + exp(-lp)))
-  # add in vertex ids
   i.name <- numeric(nrow(dyads))
   j.name <- numeric(nrow(dyads))
   for (t in 1:length(l$networks)) {
-    vnames.t <- colnames(l$networks[[i]][, ])
+    vnames.t <- colnames(l$networks[[t]][, ])
     dyads.t <- dyads[which(dyads$t == t), ]
     i.name.t <- vnames.t[dyads.t$i]
     j.name.t <- vnames.t[dyads.t$j]
@@ -373,6 +382,7 @@ edgeprob <- function (object, verbose = FALSE)
   rownames(dyads) <- NULL
   return(dyads)
 }
+
 
 # function for marginal effects plots
 marginalplot <- function(model, var1, var2, inter, ci = 0.95, 
